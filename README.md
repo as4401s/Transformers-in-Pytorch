@@ -2,6 +2,11 @@
 
 This repository contains a complete implementation of the original Transformer model from the paper "Attention Is All You Need," built from scratch using PyTorch. The code is designed to be clear, modular, and easy to follow for educational purposes.
 
+Link to my Medium article explaining the architecture in detail - 
+Model Explanation part 1 - https://medium.com/data-science/all-you-need-to-know-about-attention-and-transformers-in-depth-understanding-part-1-552f0b41d021
+Model Explanation part 2 - https://medium.com/data-science/all-you-need-to-know-about-attention-and-transformers-in-depth-understanding-part-2-bf2403804ada
+Code Explanation - https://medium.com/towards-data-science/build-your-own-transformer-from-scratch-using-pytorch-84c850470dcb
+
 ---
 
 ## 🏛️ Understanding the Transformer Architecture
@@ -91,4 +96,3 @@ The model consists of two main parts: an **Encoder** and a **Decoder**.
     print("Final output shape:", final_output.shape) # (batch_size, seq_len, tgt_vocab_size)
     ```
 
-Link to Medium article - https://medium.com/towards-data-science/build-your-own-transformer-from-scratch-using-pytorch-84c850470dcb
