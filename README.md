@@ -10,7 +10,7 @@ The Transformer is a revolutionary deep learning architecture that relies entire
 
 The model consists of two main parts: an **Encoder** and a **Decoder**.
 
-![Transformer Architecture Diagram](https://i.imgur.com/1ZJ1tW8.png)
+![Transformer Architecture Diagram](transformers.png)
 
 ### Key Components
 
