@@ -38,8 +38,9 @@ The model consists of two main parts: an **Encoder** and a **Decoder**.
 
 ```
 .
-├── transformer_model.py    # The complete Transformer implementation
-└── README.md               # This file
+├── transformer_model.py             # The complete Transformer implementation
+├── Transformers in Pytorch.ipynb    # The complete Transformer implementation as jupyter notebook
+└── README.md                        # This file
 ```
 
 ---
