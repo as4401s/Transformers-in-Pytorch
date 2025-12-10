@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
 import math
+import os
+import copy
+from pathlib import Path
 
 class InputEmbeddings(nn.Module):
     """
@@ -238,6 +241,42 @@ class Transformer(nn.Module):
 
     def project(self, x):
         return self.projection_layer(x)
+    
+    def generate_mask(self, src, tgt):
+        """
+        Generate source and target masks for the transformer.
+        
+        Args:
+            src: Source tensor of shape (batch, src_seq_len)
+            tgt: Target tensor of shape (batch, tgt_seq_len)
+            
+        Returns:
+            src_mask: Source mask of shape (batch, 1, 1, src_seq_len)
+            tgt_mask: Target mask of shape (batch, 1, tgt_seq_len, tgt_seq_len)
+        """
+        src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
+        tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(3)
+        seq_length = tgt.size(1)
+        nopeak_mask = (1 - torch.triu(torch.ones(1, seq_length, seq_length, device=tgt.device), diagonal=1)).bool()
+        tgt_mask = tgt_mask & nopeak_mask
+        return src_mask, tgt_mask
+    
+    def forward(self, src, tgt):
+        """
+        Forward pass through the transformer.
+        
+        Args:
+            src: Source tensor of shape (batch, src_seq_len)
+            tgt: Target tensor of shape (batch, tgt_seq_len)
+            
+        Returns:
+            output: Output tensor of shape (batch, tgt_seq_len, tgt_vocab_size)
+        """
+        src_mask, tgt_mask = self.generate_mask(src, tgt)
+        encoder_output = self.encode(src, src_mask)
+        decoder_output = self.decode(encoder_output, src_mask, tgt, tgt_mask)
+        output = self.project(decoder_output)
+        return output
 
 def build_transformer(src_vocab_size: int, tgt_vocab_size: int, src_seq_len: int, tgt_seq_len: int, d_model: int=512, N: int=6, h: int=8, dropout: float=0.1, d_ff: int=2048) -> Transformer:
     """
@@ -284,3 +323,132 @@ def build_transformer(src_vocab_size: int, tgt_vocab_size: int, src_seq_len: int
             nn.init.xavier_uniform_(p)
             
     return transformer
+
+
+class EarlyStopping:
+    """
+    Early stopping utility to stop training when validation loss stops improving.
+    
+    Args:
+        patience (int): Number of epochs to wait before stopping training
+        min_delta (float): Minimum change in the monitored quantity to qualify as an improvement
+        restore_best_weights (bool): Whether to restore model weights from the best epoch
+        verbose (bool): Whether to print messages when early stopping is triggered
+    """
+    def __init__(self, patience: int = 7, min_delta: float = 0.0, restore_best_weights: bool = True, verbose: bool = True):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.restore_best_weights = restore_best_weights
+        self.verbose = verbose
+        self.counter = 0
+        self.best_loss = None
+        self.early_stop = False
+        self.best_weights = None
+        
+    def __call__(self, val_loss: float, model: nn.Module) -> bool:
+        """
+        Check if training should stop early.
+        
+        Args:
+            val_loss (float): Current validation loss
+            model (nn.Module): The model being trained
+            
+        Returns:
+            bool: True if training should stop, False otherwise
+        """
+        if self.best_loss is None:
+            self.best_loss = val_loss
+            self._save_checkpoint(model)
+        elif val_loss < self.best_loss - self.min_delta:
+            # Loss improved
+            self.best_loss = val_loss
+            self.counter = 0
+            self._save_checkpoint(model)
+        else:
+            # Loss did not improve
+            self.counter += 1
+            if self.verbose:
+                print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            if self.counter >= self.patience:
+                self.early_stop = True
+                if self.restore_best_weights and self.best_weights is not None:
+                    model.load_state_dict(self.best_weights)
+                    if self.verbose:
+                        print('Restored model weights from the best epoch.')
+                if self.verbose:
+                    print(f'Early stopping triggered. Best loss: {self.best_loss:.4f}')
+        
+        return self.early_stop
+    
+    def _save_checkpoint(self, model: nn.Module):
+        """Save the current best model weights."""
+        self.best_weights = copy.deepcopy(model.state_dict())
+    
+    def reset(self):
+        """Reset the early stopping state."""
+        self.counter = 0
+        self.best_loss = None
+        self.early_stop = False
+        self.best_weights = None
+
+
+def save_model(model: nn.Module, optimizer: torch.optim.Optimizer, epoch: int, loss: float, filepath: str, additional_info: dict = None):
+    """
+    Save the model, optimizer state, and training information to disk.
+    
+    Args:
+        model (nn.Module): The model to save
+        optimizer (torch.optim.Optimizer): The optimizer state to save
+        epoch (int): Current epoch number
+        loss (float): Current loss value
+        filepath (str): Path where to save the model
+        additional_info (dict): Optional dictionary with additional information to save
+    """
+    # Create directory if it doesn't exist
+    Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+    
+    checkpoint = {
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': loss,
+    }
+    
+    if additional_info is not None:
+        checkpoint.update(additional_info)
+    
+    torch.save(checkpoint, filepath)
+    print(f'Model saved to {filepath}')
+
+
+def load_model(model: nn.Module, optimizer: torch.optim.Optimizer = None, filepath: str = None, device: torch.device = None):
+    """
+    Load a saved model and optionally optimizer state from disk.
+    
+    Args:
+        model (nn.Module): The model to load weights into
+        optimizer (torch.optim.Optimizer): Optional optimizer to load state into
+        filepath (str): Path to the saved model file
+        device (torch.device): Device to load the model on (default: CPU)
+        
+    Returns:
+        dict: Dictionary containing epoch, loss, and other saved information
+    """
+    if device is None:
+        device = torch.device('cpu')
+    
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f'Model file not found: {filepath}')
+    
+    checkpoint = torch.load(filepath, map_location=device)
+    
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model.to(device)
+    
+    if optimizer is not None and 'optimizer_state_dict' in checkpoint:
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    
+    print(f'Model loaded from {filepath}')
+    print(f'Resuming from epoch {checkpoint.get("epoch", "unknown")}, loss: {checkpoint.get("loss", "unknown"):.4f}')
+    
+    return checkpoint
